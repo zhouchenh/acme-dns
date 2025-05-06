@@ -33,7 +33,6 @@ func (a *AcmednsAPI) Start(dnsservers []acmedns.AcmednsNS) {
 		a.errChan <- err
 		return
 	}
-	//legolog.Logger = stderrorlog
 	api := httprouter.New()
 	c := cors.New(cors.Options{
 		AllowedOrigins:     a.Config.API.CorsOrigins,
@@ -59,26 +58,7 @@ func (a *AcmednsAPI) Start(dnsservers []acmedns.AcmednsNS) {
 	}
 
 	switch a.Config.API.TLS {
-	case "letsencryptstaging":
-		magic := a.setupTLS(dnsservers)
-		err = magic.ManageAsync(context.Background(), []string{a.Config.General.Domain})
-		if err != nil {
-			a.errChan <- err
-			return
-		}
-		cfg.GetCertificate = magic.GetCertificate
-
-		srv := &http.Server{
-			Addr:      host,
-			Handler:   c.Handler(api),
-			TLSConfig: cfg,
-			ErrorLog:  stderrorlog,
-		}
-		a.Logger.Infow("Listening HTTPS",
-			"host", host,
-			"domain", a.Config.General.Domain)
-		err = srv.ListenAndServeTLS("", "")
-	case "letsencrypt":
+	case acmedns.ApiTlsProviderLetsEncrypt, acmedns.ApiTlsProviderLetsEncryptStaging:
 		magic := a.setupTLS(dnsservers)
 		err = magic.ManageAsync(context.Background(), []string{a.Config.General.Domain})
 		if err != nil {
@@ -96,7 +76,7 @@ func (a *AcmednsAPI) Start(dnsservers []acmedns.AcmednsNS) {
 			"host", host,
 			"domain", a.Config.General.Domain)
 		err = srv.ListenAndServeTLS("", "")
-	case "cert":
+	case acmedns.ApiTlsProviderCert:
 		srv := &http.Server{
 			Addr:      host,
 			Handler:   c.Handler(api),
@@ -126,7 +106,7 @@ func (a *AcmednsAPI) setupTLS(dnsservers []acmedns.AcmednsNS) *certmagic.Config 
 	certmagic.DefaultACME.DNS01Solver = &provider
 	certmagic.DefaultACME.Agreed = true
 	certmagic.DefaultACME.Logger = a.Logger.Desugar()
-	if a.Config.API.TLS == "letsencrypt" {
+	if a.Config.API.TLS == acmedns.ApiTlsProviderLetsEncrypt {
 		certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
 	} else {
 		certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA

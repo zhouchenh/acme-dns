@@ -1,14 +1,18 @@
 package acmedns
 
 import (
-	"encoding/json"
-	"fmt"
+	"go.uber.org/zap/zapcore"
 
 	"go.uber.org/zap"
 )
 
 func SetupLogging(config AcmeDnsConfig) (*zap.Logger, error) {
-	var logger *zap.Logger
+	var (
+		logger *zap.Logger
+		zapCfg zap.Config
+		err    error
+	)
+
 	logformat := "console"
 	if config.Logconfig.Format == "json" {
 		logformat = "json"
@@ -21,23 +25,22 @@ func SetupLogging(config AcmeDnsConfig) (*zap.Logger, error) {
 	if config.Logconfig.Logtype == "file" {
 		errorPath = config.Logconfig.File
 	}
-	zapConfigJson := fmt.Sprintf(`{
-   "level": "%s",
-   "encoding": "%s",
-   "outputPaths": ["%s"],
-   "errorOutputPaths": ["%s"],
-   "encoderConfig": {
-	 "timeKey": "time",
-     "messageKey": "msg",
-     "levelKey": "level",
-     "levelEncoder": "lowercase",
-	 "timeEncoder": "iso8601"
-   }
- }`, config.Logconfig.Level, logformat, outputPath, errorPath)
-	var zapCfg zap.Config
-	if err := json.Unmarshal([]byte(zapConfigJson), &zapCfg); err != nil {
+
+	zapCfg.Level, err = zap.ParseAtomicLevel(config.Logconfig.Level)
+	if err != nil {
 		return logger, err
 	}
-	logger, err := zapCfg.Build()
+	zapCfg.Encoding = logformat
+	zapCfg.OutputPaths = []string{outputPath}
+	zapCfg.ErrorOutputPaths = []string{errorPath}
+	zapCfg.EncoderConfig = zapcore.EncoderConfig{
+		TimeKey:     "time",
+		MessageKey:  "msg",
+		LevelKey:    "level",
+		EncodeLevel: zapcore.LowercaseLevelEncoder,
+		EncodeTime:  zapcore.ISO8601TimeEncoder,
+	}
+
+	logger, err = zapCfg.Build()
 	return logger, err
 }

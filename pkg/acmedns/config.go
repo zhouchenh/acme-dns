@@ -8,6 +8,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+const (
+	ApiTlsProviderNone               = "none"
+	ApiTlsProviderLetsEncrypt        = "letsencrypt"
+	ApiTlsProviderLetsEncryptStaging = "letsencryptstaging"
+	ApiTlsProviderCert               = "cert"
+)
+
 func FileIsAccessible(fname string) bool {
 	_, err := os.Stat(fname)
 	if err != nil {
@@ -45,24 +52,31 @@ func prepareConfig(conf AcmeDnsConfig) (AcmeDnsConfig, error) {
 		conf.API.ACMECacheDir = "api-certs"
 	}
 
+	switch conf.API.TLS {
+	case ApiTlsProviderCert, ApiTlsProviderLetsEncrypt, ApiTlsProviderLetsEncryptStaging, ApiTlsProviderNone:
+		// we have a good value
+	default:
+		return conf, fmt.Errorf("invalid value for api.tls, expected one of [%s, %s, %s, %s]", ApiTlsProviderCert, ApiTlsProviderLetsEncrypt, ApiTlsProviderLetsEncryptStaging, ApiTlsProviderNone)
+	}
+
 	return conf, nil
 }
 
-func ReadConfig(configFile string) (AcmeDnsConfig, string, error) {
+func ReadConfig(configFile, fallback string) (AcmeDnsConfig, string, error) {
 	var usedConfigFile string
 	var config AcmeDnsConfig
 	var err error
 	if FileIsAccessible(configFile) {
 		usedConfigFile = configFile
 		config, err = readTomlConfig(configFile)
-	} else if FileIsAccessible("./config.cfg") {
-		usedConfigFile = "./config.cfg"
-		config, err = readTomlConfig("./config.cfg")
+	} else if FileIsAccessible(fallback) {
+		usedConfigFile = fallback
+		config, err = readTomlConfig(fallback)
 	} else {
 		err = fmt.Errorf("configuration file not found")
 	}
 	if err != nil {
-		err = fmt.Errorf("encountered an error while trying to read configuration file:  %s\n", err)
+		err = fmt.Errorf("encountered an error while trying to read configuration file:  %w", err)
 	}
 	return config, usedConfigFile, err
 }

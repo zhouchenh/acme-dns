@@ -10,8 +10,10 @@ import (
 
 	"github.com/joohoi/acme-dns/pkg/acmedns"
 	"github.com/joohoi/acme-dns/pkg/database"
+	"github.com/joohoi/acme-dns/pkg/nameserver"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/caddyserver/certmagic"
 	"github.com/gavv/httpexpect"
 	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
@@ -63,7 +65,7 @@ func setupRouter(debug bool, noauth bool) (http.Handler, AcmednsAPI, acmedns.Acm
 	config, logger := fakeConfigAndLogger()
 	config.API.Domain = ""
 	config.API.Port = "8080"
-	config.API.TLS = "none"
+	config.API.TLS = acmedns.ApiTlsProviderNone
 	config.API.CorsOrigins = []string{"*"}
 	config.API.UseHeader = true
 	config.API.HeaderName = "X-Forwarded-For"
@@ -497,4 +499,35 @@ func TestUpdateAllowedFromIP(t *testing.T) {
 			t.Errorf("Test %d: Unexpected result for user without allowForm set", i)
 		}
 	}
+}
+
+func TestSetupTLS(t *testing.T) {
+	_, svr, _ := setupRouter(false, false)
+
+	for _, test := range []struct {
+		apiTls     string
+		expectedCA string
+	}{
+		{
+			apiTls:     acmedns.ApiTlsProviderLetsEncrypt,
+			expectedCA: certmagic.LetsEncryptProductionCA,
+		},
+		{
+			apiTls:     acmedns.ApiTlsProviderLetsEncryptStaging,
+			expectedCA: certmagic.LetsEncryptStagingCA,
+		},
+	} {
+		svr.Config.API.TLS = test.apiTls
+		ns := &nameserver.Nameserver{}
+		magic := svr.setupTLS([]acmedns.AcmednsNS{ns})
+
+		if test.expectedCA != certmagic.DefaultACME.CA {
+			t.Errorf("failed to configure default ACME CA. got %s, want %s", certmagic.DefaultACME.CA, test.expectedCA)
+		}
+
+		if magic.DefaultServerName != svr.Config.General.Domain {
+			t.Errorf("failed to set the correct doman. got: %s, want %s", magic.DefaultServerName, svr.Config.General.Domain)
+		}
+	}
+
 }

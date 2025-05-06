@@ -8,7 +8,7 @@ type Account struct {
 	Subdomain string
 }
 
-// DNSConfig holds the config structure
+// AcmeDnsConfig holds the config structure
 type AcmeDnsConfig struct {
 	General   general
 	Database  dbsettings

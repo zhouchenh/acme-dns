@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Check if IP belongs to an allowed net
+// AllowedFrom Check if IP belongs to an allowed net
 func (a ACMETxt) AllowedFrom(ip string) bool {
 	remoteIP := net.ParseIP(ip)
 	// Range not limited
@@ -22,7 +22,7 @@ func (a ACMETxt) AllowedFrom(ip string) bool {
 	return false
 }
 
-// Go through list (most likely from headers) to check for the IP.
+// AllowedFromList Go through list (most likely from headers) to check for the IP.
 // Reason for this is that some setups use reverse proxy in front of acme-dns
 func (a ACMETxt) AllowedFromList(ips []string) bool {
 	if len(ips) == 0 {

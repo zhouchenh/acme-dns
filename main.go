@@ -21,7 +21,7 @@ func main() {
 	// Read global config
 	var err error
 	var logger *zap.Logger
-	config, usedConfigFile, err := acmedns.ReadConfig(*configPtr)
+	config, usedConfigFile, err := acmedns.ReadConfig(*configPtr, "./config.cfg")
 	if err != nil {
 		fmt.Printf("Error: %s\n", err)
 		os.Exit(1)
