@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/mholt/acmez/acme"
+	"github.com/mholt/acmez/v3/acme"
 
 	"github.com/joohoi/acme-dns/pkg/acmedns"
 )
