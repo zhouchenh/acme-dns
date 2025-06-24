@@ -29,7 +29,7 @@ var acmeTable = `
 var adminTable = `
 	CREATE TABLE IF NOT EXISTS admins(
         Username TEXT UNIQUE NOT NULL PRIMARY KEY,
-        Password TEXT NOT NULL,
+        Password TEXT NOT NULL
     );`
 
 var userTable = `
