@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
@@ -110,7 +111,7 @@ func webUpdatePost(w http.ResponseWriter, r *http.Request, _ httprouter.Params) 
 		return
 	}
 	log.WithFields(log.Fields{"subdomain": a.Subdomain, "txt": a.Value}).Debug("TXT A AAAA updated")
-	WriteJsonResponse(w, http.StatusOK, []byte("{\"txt\": \""+a.Value+"\"}"))
+	WriteJsonResponse(w, http.StatusOK, []byte("{\"txt\": \""+a.Value+"\", \"a\": \""+strings.Join(a.AValues, " ")+"\", \"aaaa\": \""+strings.Join(a.AAAAValues, " ")+"\"}"))
 	return
 }
 
