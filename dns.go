@@ -193,13 +193,14 @@ func (d *DNSServer) isOwnChallenge(name string) bool {
 func (d *DNSServer) answer(q dns.Question) ([]dns.RR, int, bool, error) {
 	var rcode int
 	var err error
-	var txtRRs []dns.RR
 	var authoritative = d.isAuthoritative(q)
 	if !d.isOwnChallenge(q.Name) && !d.answeringForDomain(q.Name) {
 		rcode = dns.RcodeNameError
 	}
 	r, _ := d.getRecord(q)
-	if q.Qtype == dns.TypeTXT {
+	switch q.Qtype {
+	case dns.TypeTXT:
+		var txtRRs []dns.RR
 		if d.isOwnChallenge(q.Name) {
 			txtRRs, err = d.answerOwnChallenge(q)
 		} else {
@@ -208,6 +209,22 @@ func (d *DNSServer) answer(q dns.Question) ([]dns.RR, int, bool, error) {
 		if err == nil {
 			r = append(r, txtRRs...)
 		}
+		break
+	case dns.TypeA:
+		var aRRs []dns.RR
+		aRRs, err = d.answerA(q)
+		if err == nil {
+			r = append(r, aRRs...)
+		}
+		break
+	case dns.TypeAAAA:
+		var aaaaRRs []dns.RR
+		aaaaRRs, err = d.answerAAAA(q)
+		if err == nil {
+			r = append(r, aaaaRRs...)
+		}
+		break
+	default:
 	}
 	if len(r) > 0 {
 		// Make sure that we return NOERROR if there were dynamic records for the domain
@@ -230,6 +247,44 @@ func (d *DNSServer) answerTXT(q dns.Question) ([]dns.RR, error) {
 			r := new(dns.TXT)
 			r.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 1}
 			r.Txt = append(r.Txt, v)
+			ra = append(ra, r)
+		}
+	}
+	return ra, nil
+}
+
+func (d *DNSServer) answerA(q dns.Question) ([]dns.RR, error) {
+	var ra []dns.RR
+	subdomain := sanitizeDomainQuestion(q.Name)
+	aip, err := d.DB.GetAForDomain(subdomain)
+	if err != nil {
+		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to get record")
+		return ra, err
+	}
+	for _, v := range aip {
+		if len(v) > 0 {
+			r := new(dns.A)
+			r.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}
+			r.A = v
+			ra = append(ra, r)
+		}
+	}
+	return ra, nil
+}
+
+func (d *DNSServer) answerAAAA(q dns.Question) ([]dns.RR, error) {
+	var ra []dns.RR
+	subdomain := sanitizeDomainQuestion(q.Name)
+	aip6, err := d.DB.GetAAAAForDomain(subdomain)
+	if err != nil {
+		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to get record")
+		return ra, err
+	}
+	for _, v := range aip6 {
+		if len(v) > 0 {
+			r := new(dns.AAAA)
+			r.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 1}
+			r.AAAA = v
 			ra = append(ra, r)
 		}
 	}

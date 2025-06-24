@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"net"
 	"sync"
 
 	"github.com/google/uuid"
@@ -64,14 +65,17 @@ type logconfig struct {
 
 type acmedb struct {
 	Mutex sync.Mutex
-	DB *sql.DB
+	DB    *sql.DB
 }
 
 type database interface {
 	Init(string, string) error
 	Register(cidrslice) (ACMETxt, error)
+	GetAdminPassByUsername(string) (string, error)
 	GetByUsername(uuid.UUID) (ACMETxt, error)
 	GetTXTForDomain(string) ([]string, error)
+	GetAForDomain(string) ([]net.IP, error)
+	GetAAAAForDomain(string) ([]net.IP, error)
 	Update(ACMETxtPost) error
 	GetBackend() *sql.DB
 	SetBackend(*sql.DB)

@@ -75,7 +75,7 @@ func setupRouter(debug bool, noauth bool) http.Handler {
 	if noauth {
 		api.POST("/update", noAuth(webUpdatePost))
 	} else {
-		api.POST("/update", Auth(webUpdatePost))
+		api.POST("/update", AuthForUpdate(webUpdatePost))
 	}
 	return c.Handler(api)
 }

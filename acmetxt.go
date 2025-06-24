@@ -18,8 +18,10 @@ type ACMETxt struct {
 
 // ACMETxtPost holds the DNS part of the ACMETxt struct
 type ACMETxtPost struct {
-	Subdomain string `json:"subdomain"`
-	Value     string `json:"txt"`
+	Subdomain  string   `json:"subdomain"`
+	Value      string   `json:"txt"`
+	AValues    []string `json:"a"`
+	AAAAValues []string `json:"aaaa"`
 }
 
 // cidrslice is a list of allowed cidr ranges

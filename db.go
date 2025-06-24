@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"time"
@@ -25,10 +26,16 @@ var acmeTable = `
 		Value TEXT
 	);`
 
+var adminTable = `
+	CREATE TABLE IF NOT EXISTS admins(
+        Username TEXT UNIQUE NOT NULL PRIMARY KEY,
+        Password TEXT NOT NULL,
+    );`
+
 var userTable = `
 	CREATE TABLE IF NOT EXISTS records(
         Username TEXT UNIQUE NOT NULL PRIMARY KEY,
-        Password TEXT UNIQUE NOT NULL,
+        Password TEXT NOT NULL,
         Subdomain TEXT UNIQUE NOT NULL,
 		AllowFrom TEXT
     );`
@@ -45,6 +52,20 @@ var txtTablePG = `
 		rowid SERIAL,
 		Subdomain TEXT NOT NULL,
 		Value   TEXT NOT NULL DEFAULT '',
+		LastUpdate INT
+	);`
+
+var aTable = `
+    CREATE TABLE IF NOT EXISTS a(
+		Subdomain TEXT NOT NULL,
+		Value   TEXT NOT NULL,
+		LastUpdate INT
+	);`
+
+var aaaaTable = `
+    CREATE TABLE IF NOT EXISTS a(
+		Subdomain TEXT NOT NULL,
+		Value   TEXT NOT NULL,
 		LastUpdate INT
 	);`
 
@@ -69,12 +90,15 @@ func (d *acmedb) Init(engine string, connection string) error {
 		versionString = "0"
 	}
 	_, _ = d.DB.Exec(acmeTable)
+	_, _ = d.DB.Exec(adminTable)
 	_, _ = d.DB.Exec(userTable)
 	if Config.Database.Engine == "sqlite3" {
 		_, _ = d.DB.Exec(txtTable)
 	} else {
 		_, _ = d.DB.Exec(txtTablePG)
 	}
+	_, _ = d.DB.Exec(aTable)
+	_, _ = d.DB.Exec(aaaaTable)
 	// If everything is fine, handle db upgrade tasks
 	if err == nil {
 		err = d.checkDBUpgrades(versionString)
@@ -209,6 +233,45 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
 	return a, err
 }
 
+func (d *acmedb) GetAdminPassByUsername(username string) (string, error) {
+	d.Mutex.Lock()
+	defer d.Mutex.Unlock()
+	var results []string
+	getSQL := `
+	SELECT Password
+	FROM admins
+	WHERE Username=$1 LIMIT 1
+	`
+	if Config.Database.Engine == "sqlite3" {
+		getSQL = getSQLiteStmt(getSQL)
+	}
+
+	sm, err := d.DB.Prepare(getSQL)
+	if err != nil {
+		return "", err
+	}
+	defer sm.Close()
+	rows, err := sm.Query(username)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	// It will only be one row though
+	for rows.Next() {
+		var result string
+		err = rows.Scan(&result)
+		if err != nil {
+			return "", err
+		}
+		results = append(results, result)
+	}
+	if len(results) > 0 {
+		return results[0], nil
+	}
+	return "", errors.New("admin not found")
+}
+
 func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
 	d.Mutex.Lock()
 	defer d.Mutex.Unlock()
@@ -281,6 +344,87 @@ func (d *acmedb) GetTXTForDomain(domain string) ([]string, error) {
 	return txts, nil
 }
 
+func (d *acmedb) GetAForDomain(domain string) ([]net.IP, error) {
+	d.Mutex.Lock()
+	defer d.Mutex.Unlock()
+	domain = sanitizeString(domain)
+	var ips []net.IP
+	getSQL := `
+	SELECT Value FROM a WHERE Subdomain=$1 LIMIT 255
+	`
+	if Config.Database.Engine == "sqlite3" {
+		getSQL = getSQLiteStmt(getSQL)
+	}
+
+	sm, err := d.DB.Prepare(getSQL)
+	if err != nil {
+		return ips, err
+	}
+	defer sm.Close()
+	rows, err := sm.Query(domain)
+	if err != nil {
+		return ips, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ra string
+		var ip net.IP
+		err = rows.Scan(&ra)
+		if err != nil {
+			return ips, err
+		}
+		ip = net.ParseIP(ra)
+		if ip != nil {
+			ip = ip.To4()
+		}
+		if ip == nil {
+			return ips, fmt.Errorf("invalid IPv4 address: %s", ra)
+		}
+		ips = append(ips, ip)
+	}
+	return ips, nil
+}
+
+func (d *acmedb) GetAAAAForDomain(domain string) ([]net.IP, error) {
+	d.Mutex.Lock()
+	defer d.Mutex.Unlock()
+	domain = sanitizeString(domain)
+	var ip6s []net.IP
+	getSQL := `
+	SELECT Value FROM aaaa WHERE Subdomain=$1 LIMIT 255
+	`
+	if Config.Database.Engine == "sqlite3" {
+		getSQL = getSQLiteStmt(getSQL)
+	}
+
+	sm, err := d.DB.Prepare(getSQL)
+	if err != nil {
+		return ip6s, err
+	}
+	defer sm.Close()
+	rows, err := sm.Query(domain)
+	if err != nil {
+		return ip6s, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var raaaa string
+		var ip6 net.IP
+		err = rows.Scan(&raaaa)
+		if err != nil {
+			return ip6s, err
+		}
+		ip6 = net.ParseIP(raaaa)
+		if ip6 == nil {
+			return ip6s, fmt.Errorf("invalid IPv6 address: %s", raaaa)
+		}
+		ip6s = append(ip6s, ip6)
+	}
+	return ip6s, nil
+}
+
 func (d *acmedb) Update(a ACMETxtPost) error {
 	d.Mutex.Lock()
 	defer d.Mutex.Unlock()
@@ -288,24 +432,110 @@ func (d *acmedb) Update(a ACMETxtPost) error {
 	// Data in a is already sanitized
 	timenow := time.Now().Unix()
 
-	updSQL := `
+	if a.Value != "" {
+		updSQL := `
 	UPDATE txt SET Value=$1, LastUpdate=$2
 	WHERE rowid=(
 		SELECT rowid FROM txt WHERE Subdomain=$3 ORDER BY LastUpdate LIMIT 1)
 	`
-	if Config.Database.Engine == "sqlite3" {
-		updSQL = getSQLiteStmt(updSQL)
+		if Config.Database.Engine == "sqlite3" {
+			updSQL = getSQLiteStmt(updSQL)
+		}
+
+		var sm *sql.Stmt
+		sm, err = d.DB.Prepare(updSQL)
+		if err != nil {
+			return err
+		}
+		defer sm.Close()
+		_, err = sm.Exec(a.Value, timenow, a.Subdomain)
+		if err != nil {
+			return err
+		}
 	}
 
-	sm, err := d.DB.Prepare(updSQL)
-	if err != nil {
-		return err
+	if len(a.AValues) > 0 {
+		deleteSQL := `
+	DELETE FROM a
+	WHERE Subdomain=$1
+	`
+		insertSQL := `
+	INSERT INTO a(
+        Subdomain,
+        Value,
+        LastUpdate) 
+        values($1, $2, $3)
+	`
+		if Config.Database.Engine == "sqlite3" {
+			deleteSQL = getSQLiteStmt(deleteSQL)
+			insertSQL = getSQLiteStmt(insertSQL)
+		}
+
+		var deleteStmt *sql.Stmt
+		deleteStmt, err = d.DB.Prepare(deleteSQL)
+		if err != nil {
+			return err
+		}
+		defer deleteStmt.Close()
+		var insertStmt *sql.Stmt
+		insertStmt, err = d.DB.Prepare(insertSQL)
+		if err != nil {
+			return err
+		}
+		defer insertStmt.Close()
+		_, err = deleteStmt.Exec(a.Subdomain)
+		if err != nil {
+			return err
+		}
+		for i := range a.AValues {
+			_, err = insertStmt.Exec(a.Subdomain, a.AValues[i], timenow)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	defer sm.Close()
-	_, err = sm.Exec(a.Value, timenow, a.Subdomain)
-	if err != nil {
-		return err
+
+	if len(a.AAAAValues) > 0 {
+		deleteSQL := `
+	DELETE FROM aaaa
+	WHERE Subdomain=$1
+	`
+		insertSQL := `
+	INSERT INTO aaaa(
+        Subdomain,
+        Value,
+        LastUpdate) 
+        values($1, $2, $3)
+	`
+		if Config.Database.Engine == "sqlite3" {
+			deleteSQL = getSQLiteStmt(deleteSQL)
+			insertSQL = getSQLiteStmt(insertSQL)
+		}
+
+		var deleteStmt *sql.Stmt
+		deleteStmt, err = d.DB.Prepare(deleteSQL)
+		if err != nil {
+			return err
+		}
+		defer deleteStmt.Close()
+		var insertStmt *sql.Stmt
+		insertStmt, err = d.DB.Prepare(insertSQL)
+		if err != nil {
+			return err
+		}
+		defer insertStmt.Close()
+		_, err = deleteStmt.Exec(a.Subdomain)
+		if err != nil {
+			return err
+		}
+		for i := range a.AAAAValues {
+			_, err = insertStmt.Exec(a.Subdomain, a.AAAAValues[i], timenow)
+			if err != nil {
+				return err
+			}
+		}
 	}
+
 	return nil
 }
 

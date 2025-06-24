@@ -124,9 +124,9 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 		c.Log = stdlog.New(logwriter, "", 0)
 	}
 	if !Config.API.DisableRegistration {
-		api.POST("/register", webRegisterPost)
+		api.POST("/register", AuthForRegister(webRegisterPost))
 	}
-	api.POST("/update", Auth(webUpdatePost))
+	api.POST("/update", AuthForUpdate(webUpdatePost))
 	api.GET("/health", healthCheck)
 
 	host := Config.API.IP + ":" + Config.API.Port

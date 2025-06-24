@@ -16,42 +16,63 @@ type key int
 // ACMETxtKey is a context key for ACMETxt struct
 const ACMETxtKey key = 0
 
-// Auth middleware for update request
-func Auth(update httprouter.Handle) httprouter.Handle {
+// AuthForRegister middleware for register request
+func AuthForRegister(register httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			WriteJsonResponse(w, http.StatusUnauthorized, jsonError("unauthorized"))
+			return
+		}
+		pass, err := DB.GetAdminPassByUsername(username)
+		if err != nil {
+			log.WithFields(log.Fields{"error": err.Error()}).Error("Error while trying to get user")
+			// To protect against timed side channel (never gonna give you up)
+			correctPassword(password, "$2a$10$8JEFVNYYhLoBysjAxe2yBuXrkDojBQBkVpXEQgyQyjn43SvJ4vL36")
+			WriteJsonResponse(w, http.StatusUnauthorized, jsonError("unauthorized"))
+			return
+		}
+		if !correctPassword(password, pass) {
+			WriteJsonResponse(w, http.StatusUnauthorized, jsonError("unauthorized"))
+			return
+		}
+		register(w, r, p)
+	}
+}
+
+// AuthForUpdate middleware for update request
+func AuthForUpdate(update httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		postData := ACMETxt{}
-		userOK := false
 		user, err := getUserFromRequest(r)
-		if err == nil {
-			if updateAllowedFromIP(r, user) {
-				dec := json.NewDecoder(r.Body)
-				err = dec.Decode(&postData)
-				if err != nil {
-					log.WithFields(log.Fields{"error": "json_error", "string": err.Error()}).Error("Decode error")
-				}
-				if user.Subdomain == postData.Subdomain {
-					userOK = true
-				} else {
-					log.WithFields(log.Fields{"error": "subdomain_mismatch", "name": postData.Subdomain, "expected": user.Subdomain}).Error("Subdomain mismatch")
-				}
-			} else {
-				log.WithFields(log.Fields{"error": "ip_unauthorized"}).Error("Update not allowed from IP")
-			}
-		} else {
+		if err != nil {
 			log.WithFields(log.Fields{"error": err.Error()}).Error("Error while trying to get user")
+			WriteJsonResponse(w, http.StatusUnauthorized, jsonError("unauthorized"))
+			return
 		}
-		if userOK {
-			// Set user info to the decoded ACMETxt object
-			postData.Username = user.Username
-			postData.Password = user.Password
-			// Set the ACMETxt struct to context to pull in from update function
-			ctx := context.WithValue(r.Context(), ACMETxtKey, postData)
-			update(w, r.WithContext(ctx), p)
-		} else {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write(jsonError("forbidden"))
+		if !updateAllowedFromIP(r, user) {
+			log.WithFields(log.Fields{"error": "ip_unauthorized"}).Error("Update not allowed from IP")
+			WriteJsonResponse(w, http.StatusForbidden, jsonError("forbidden"))
+			return
 		}
+		dec := json.NewDecoder(r.Body)
+		err = dec.Decode(&postData)
+		if err != nil {
+			log.WithFields(log.Fields{"error": "json_error", "string": err.Error()}).Error("Decode error")
+			WriteJsonResponse(w, http.StatusBadRequest, jsonError("bad_request"))
+			return
+		}
+		if user.Subdomain != postData.Subdomain {
+			log.WithFields(log.Fields{"error": "subdomain_mismatch", "name": postData.Subdomain, "expected": user.Subdomain}).Error("Subdomain mismatch")
+			WriteJsonResponse(w, http.StatusForbidden, jsonError("forbidden"))
+			return
+		}
+		// Set user info to the decoded ACMETxt object
+		postData.Username = user.Username
+		postData.Password = user.Password
+		// Set the ACMETxt struct to context to pull in from update function
+		ctx := context.WithValue(r.Context(), ACMETxtKey, postData)
+		update(w, r.WithContext(ctx), p)
 	}
 }
 
