@@ -63,7 +63,7 @@ var aTable = `
 	);`
 
 var aaaaTable = `
-    CREATE TABLE IF NOT EXISTS a(
+    CREATE TABLE IF NOT EXISTS aaaa(
 		Subdomain TEXT NOT NULL,
 		Value   TEXT NOT NULL,
 		LastUpdate INT
