@@ -76,6 +76,7 @@ type database interface {
 	GetTXTForDomain(string) ([]string, error)
 	GetAForDomain(string) ([]net.IP, error)
 	GetAAAAForDomain(string) ([]net.IP, error)
+	CountRecords(string) (int, error)
 	Update(ACMETxtPost) error
 	GetBackend() *sql.DB
 	SetBackend(*sql.DB)

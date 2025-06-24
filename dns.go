@@ -226,7 +226,7 @@ func (d *DNSServer) answer(q dns.Question) ([]dns.RR, int, bool, error) {
 		break
 	default:
 	}
-	if len(r) > 0 {
+	if len(r) > 0 || d.countRecords(q) > 0 {
 		// Make sure that we return NOERROR if there were dynamic records for the domain
 		rcode = dns.RcodeSuccess
 	}
@@ -289,6 +289,16 @@ func (d *DNSServer) answerAAAA(q dns.Question) ([]dns.RR, error) {
 		}
 	}
 	return ra, nil
+}
+
+func (d *DNSServer) countRecords(q dns.Question) (count int) {
+	subdomain := sanitizeDomainQuestion(q.Name)
+	var err error
+	count, err = d.DB.CountRecords(subdomain)
+	if err != nil {
+		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to count records")
+	}
+	return
 }
 
 // answerOwnChallenge answers to ACME challenge for acme-dns own certificate

@@ -425,6 +425,94 @@ func (d *acmedb) GetAAAAForDomain(domain string) ([]net.IP, error) {
 	return ip6s, nil
 }
 
+func (d *acmedb) CountRecords(domain string) (count int, err error) {
+	d.Mutex.Lock()
+	defer d.Mutex.Unlock()
+	domain = sanitizeString(domain)
+	countTXTSQL := `
+	SELECT COUNT(*) FROM txt WHERE Subdomain=$1 AND Value != ''
+	`
+	countASQL := `
+	SELECT COUNT(*) FROM a WHERE Subdomain=$1
+	`
+	countAAAASQL := `
+	SELECT COUNT(*) FROM aaaa WHERE Subdomain=$1
+	`
+	if Config.Database.Engine == "sqlite3" {
+		countTXTSQL = getSQLiteStmt(countTXTSQL)
+		countASQL = getSQLiteStmt(countASQL)
+		countAAAASQL = getSQLiteStmt(countAAAASQL)
+	}
+
+	var countTXTStmt *sql.Stmt
+	countTXTStmt, err = d.DB.Prepare(countTXTSQL)
+	if err != nil {
+		return
+	}
+	defer countTXTStmt.Close()
+
+	var countAStmt *sql.Stmt
+	countAStmt, err = d.DB.Prepare(countASQL)
+	if err != nil {
+		return
+	}
+	defer countAStmt.Close()
+
+	var countAAAAStmt *sql.Stmt
+	countAAAAStmt, err = d.DB.Prepare(countAAAASQL)
+	if err != nil {
+		return
+	}
+	defer countAAAAStmt.Close()
+
+	var countTXTRows *sql.Rows
+	countTXTRows, err = countTXTStmt.Query(domain)
+	if err != nil {
+		return
+	}
+	defer countTXTRows.Close()
+	for countTXTRows.Next() {
+		var c int
+		err = countTXTRows.Scan(&c)
+		if err != nil {
+			return
+		}
+		count += c
+	}
+
+	var countARows *sql.Rows
+	countARows, err = countAStmt.Query(domain)
+	if err != nil {
+		return
+	}
+	defer countARows.Close()
+	for countARows.Next() {
+		var c int
+		err = countARows.Scan(&c)
+		if err != nil {
+			return
+		}
+		count += c
+	}
+
+	var countAAAARows *sql.Rows
+	countAAAARows, err = countAAAAStmt.Query(domain)
+	if err != nil {
+		return
+	}
+	defer countAAAARows.Close()
+	for countAAAARows.Next() {
+		var c int
+		err = countAAAARows.Scan(&c)
+		if err != nil {
+			return
+		}
+		count += c
+	}
+
+	return
+}
+
 func (d *acmedb) Update(a ACMETxtPost) error {
 	d.Mutex.Lock()
 	defer d.Mutex.Unlock()
